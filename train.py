@@ -20,11 +20,15 @@ def run_for_window(returns, window_days):
         return None
     ret_window = returns.iloc[-window_days:]
     try:
-        # Per-ETF score
         raw_scores = {}
         for ticker in ret_window.columns:
-            s = susy_qm_score(ret_window[ticker], n_grid=config.N_DISCRETIZATION, threshold=config.ENERGY_THRESHOLD)
-            raw_scores[ticker] = s
+            s = susy_qm_score(
+                ret_window[ticker],
+                n_grid=config.N_DISCRETIZATION,
+                threshold=config.ENERGY_THRESHOLD
+            )
+            # Ensure JSON‑serializable float
+            raw_scores[ticker] = float(s)
     except Exception as e:
         print(f"    Error: {e}")
         return None
