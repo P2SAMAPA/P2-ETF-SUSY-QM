@@ -20,7 +20,7 @@ UNIVERSES = {
 }
 
 # SUSY parameters
-ENERGY_THRESHOLD = 0.01     # not used in this version, but kept for compatibility
+ENERGY_THRESHOLD = 1e-6   # very small threshold for zero-energy states
 N_DISCRETIZATION = 200      # grid points for density estimation
 MODE_PROMINENCE = 0.002      # prominence threshold for peak detection
 TOP_N = 3
