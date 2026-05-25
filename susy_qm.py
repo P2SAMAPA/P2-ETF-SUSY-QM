@@ -3,40 +3,52 @@ from scipy.linalg import eigh_tridiagonal
 from sklearn.neighbors import KernelDensity
 
 def compute_hamiltonian_eigenvalues(returns, n_grid=200):
-    """Compute eigenvalues of the SUSY Hamiltonian H = -d²/dx² + V_eff(x)."""
+    """
+    Discretise the SUSY Hamiltonian H = -d²/dx² + V_eff(x) on a grid
+    and return the smallest eigenvalues.
+    """
     returns_clean = returns.dropna().values.reshape(-1, 1)
     if len(returns_clean) < 10:
-        return np.array([1.0])  # dummy
-    # Estimate superpotential
+        return np.array([1.0])
+
+    # Estimate superpotential W(x) = -log(p(x)) via KDE
     kde = KernelDensity(kernel='gaussian', bandwidth=0.01).fit(returns_clean)
     grid_min = np.percentile(returns_clean, 1)
     grid_max = np.percentile(returns_clean, 99)
-    margin = 0.05
+    margin = 0.05 * (grid_max - grid_min)
     grid_min -= margin
     grid_max += margin
     x_grid = np.linspace(grid_min, grid_max, n_grid)
     log_prob = kde.score_samples(x_grid.reshape(-1, 1))
     W = -log_prob
-    W -= np.min(W)
+    W -= np.min(W)                     # normalise
+
+    # Derivatives
     dx = x_grid[1] - x_grid[0]
     Wp = np.gradient(W, dx)
     Wpp = np.gradient(Wp, dx)
+
+    # Effective potential
     V_eff = Wp**2 - Wpp
-    # Kinetic term
+
+    # Kinetic term: - (ħ²/2m) d²/dx², set ħ=1, m=1 → 0.5
     hbar_sq_over_2m = 0.5
     n = n_grid
     diag = np.zeros(n)
     off_diag = np.zeros(n-1)
+
     for i in range(n):
         diag[i] = V_eff[i] + 2 * hbar_sq_over_2m / dx**2
     for i in range(n-1):
         off_diag[i] = - hbar_sq_over_2m / dx**2
+
+    # Compute smallest 10 eigenvalues
     eigvals, _ = eigh_tridiagonal(diag, off_diag, select='a', select_range=(0, 9))
     return eigvals
 
 def witten_index(returns, n_grid=200, epsilon=0.05):
     """
-    Approximate Witten index as the number of eigenvalues below epsilon * max_eigenvalue.
+    Approximate Witten index = number of eigenvalues below epsilon * max_eigenvalue.
     """
     eigvals = compute_hamiltonian_eigenvalues(returns, n_grid)
     if len(eigvals) == 0:
@@ -49,8 +61,11 @@ def witten_index(returns, n_grid=200, epsilon=0.05):
     return int(index)
 
 def susy_qm_score(returns, n_grid=200, epsilon=0.05):
-    """Return integer Witten index (0,1,2,...)."""
+    """
+    Returns the Witten index (integer) as a float for JSON serialisation.
+    """
     returns_clean = returns.dropna()
     if len(returns_clean) < 10:
-        return 0
-    return witten_index(returns_clean, n_grid, epsilon)
+        return 0.0
+    idx = witten_index(returns_clean, n_grid, epsilon)
+    return float(idx)
