@@ -8,34 +8,26 @@ import data_manager as dm
 from susy_qm import susy_qm_score
 
 def normalize_scores(score_dict):
-    """
-    Normalize scores to [0,1] using min‑max scaling.
-    For ground state energy, lower energy = better, so we invert before normalizing
-    so that higher normalized score = lower energy.
-    """
+    """Normalize to [0,1] but fallback to 0 if constant."""
     scores = np.array(list(score_dict.values()))
-    # Invert: we want low energy → high normalized score
-    inv_scores = -scores
-    min_s, max_s = inv_scores.min(), inv_scores.max()
+    min_s, max_s = scores.min(), scores.max()
     if max_s - min_s < 1e-12:
-        return {k: 0.0 for k in score_dict}
-    norm = (inv_scores - min_s) / (max_s - min_s)
+        return {k: 0.5 for k in score_dict}  # fallback to 0.5
+    norm = (scores - min_s) / (max_s - min_s)
     return {ticker: float(norm[i]) for i, ticker in enumerate(score_dict.keys())}
 
 def run_for_window(returns, window_days):
-    """Process one rolling window."""
     if len(returns) < window_days:
         return None
     ret_window = returns.iloc[-window_days:]
-    try:
-        raw_scores = {}
-        for ticker in ret_window.columns:
-            # susy_qm_score now returns ground state energy (float)
-            s = susy_qm_score(ret_window[ticker], n_grid=config.N_DISCRETIZATION)
-            raw_scores[ticker] = float(s)
-    except Exception as e:
-        print(f"    Error: {e}")
-        return None
+    raw_scores = {}
+    for ticker in ret_window.columns:
+        s = susy_qm_score(ret_window[ticker])
+        raw_scores[ticker] = float(s)
+    # Print first few raw scores for debugging
+    if raw_scores:
+        first_ticker = list(raw_scores.keys())[0]
+        print(f"    Sample raw score for {first_ticker}: {raw_scores[first_ticker]}")
     norm_scores = normalize_scores(raw_scores)
     sorted_norm = sorted(norm_scores.items(), key=lambda x: x[1], reverse=True)
     top_etfs = [{"ticker": t, "susy_score_norm": s, "raw_score": raw_scores[t]} for t, s in sorted_norm[:config.TOP_N]]
@@ -52,7 +44,6 @@ def main():
     results = {
         "run_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "windows": config.WINDOWS,
-        "discretization_points": config.N_DISCRETIZATION,
         "universes": {}
     }
     for uni_name in config.UNIVERSES.keys():
@@ -70,11 +61,10 @@ def main():
             out = run_for_window(returns, w)
             if out:
                 all_window_results.append(out)
-                # Best window = one with smallest ground state energy (since lower energy = more metastable)
-                # We use negative of raw scores to compare (lower raw = higher negative)
-                best_raw = max(-v for v in out["all_scores_raw"].values())
-                if best_raw > best_score:
-                    best_score = best_raw
+                # best window = largest raw score (highest vol)
+                max_raw = max(out["all_scores_raw"].values())
+                if max_raw > best_score:
+                    best_score = max_raw
                     best_window = w
                     best_data = out
             else:
