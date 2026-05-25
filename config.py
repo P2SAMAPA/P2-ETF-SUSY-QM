@@ -21,5 +21,6 @@ UNIVERSES = {
 
 # SUSY parameters
 ENERGY_THRESHOLD = 1e-6   # very small threshold for zero-energy states
+EPSILON = 0.05          # threshold fraction of max eigenvalue
 N_DISCRETIZATION = 200      # grid points for density estimation
 TOP_N = 3
