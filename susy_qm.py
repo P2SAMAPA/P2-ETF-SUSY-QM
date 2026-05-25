@@ -2,16 +2,16 @@ import numpy as np
 from scipy.linalg import eigh_tridiagonal
 from sklearn.neighbors import KernelDensity
 
-def compute_hamiltonian_eigenvalues(returns, n_grid=200):
+def compute_ground_state_energy(returns, n_grid=200):
     """
-    Discretise the SUSY Hamiltonian H = -d²/dx² + V_eff(x) on a grid
-    and return the smallest eigenvalues.
+    Discretise the SUSY Hamiltonian H = -d²/dx² + V_eff(x)
+    and return the smallest eigenvalue (ground state energy).
     """
     returns_clean = returns.dropna().values.reshape(-1, 1)
     if len(returns_clean) < 10:
-        return np.array([1.0])
+        return 1.0  # fallback
 
-    # Estimate superpotential W(x) = -log(p(x)) via KDE
+    # KDE for superpotential W(x) = -log(p(x))
     kde = KernelDensity(kernel='gaussian', bandwidth=0.01).fit(returns_clean)
     grid_min = np.percentile(returns_clean, 1)
     grid_max = np.percentile(returns_clean, 99)
@@ -23,49 +23,31 @@ def compute_hamiltonian_eigenvalues(returns, n_grid=200):
     W = -log_prob
     W -= np.min(W)                     # normalise
 
-    # Derivatives
     dx = x_grid[1] - x_grid[0]
     Wp = np.gradient(W, dx)
     Wpp = np.gradient(Wp, dx)
-
-    # Effective potential
     V_eff = Wp**2 - Wpp
 
-    # Kinetic term: - (ħ²/2m) d²/dx², set ħ=1, m=1 → 0.5
+    # Kinetic term: -0.5 * d²/dx² (ħ=1, m=1)
     hbar_sq_over_2m = 0.5
     n = n_grid
     diag = np.zeros(n)
     off_diag = np.zeros(n-1)
-
     for i in range(n):
         diag[i] = V_eff[i] + 2 * hbar_sq_over_2m / dx**2
     for i in range(n-1):
         off_diag[i] = - hbar_sq_over_2m / dx**2
 
-    # Compute smallest 10 eigenvalues
-    eigvals, _ = eigh_tridiagonal(diag, off_diag, select='a', select_range=(0, 9))
-    return eigvals
+    # Compute smallest eigenvalue only
+    eigvals, _ = eigh_tridiagonal(diag, off_diag, select='a', select_range=(0, 0))
+    return float(eigvals[0])
 
-def witten_index(returns, n_grid=200, epsilon=0.05):
+def susy_qm_score(returns, n_grid=200, epsilon=None):
     """
-    Approximate Witten index = number of eigenvalues below epsilon * max_eigenvalue.
-    """
-    eigvals = compute_hamiltonian_eigenvalues(returns, n_grid)
-    if len(eigvals) == 0:
-        return 0
-    max_eig = max(eigvals)
-    if max_eig < 1e-12:
-        return 0
-    threshold = epsilon * max_eig
-    index = np.sum(eigvals < threshold)
-    return int(index)
-
-def susy_qm_score(returns, n_grid=200, epsilon=0.05):
-    """
-    Returns the Witten index (integer) as a float for JSON serialisation.
+    Return the ground state energy of the SUSY Hamiltonian.
+    Lower energy = flatter potential = more metastability.
     """
     returns_clean = returns.dropna()
     if len(returns_clean) < 10:
-        return 0.0
-    idx = witten_index(returns_clean, n_grid, epsilon)
-    return float(idx)
+        return 1.0
+    return compute_ground_state_energy(returns_clean, n_grid)
