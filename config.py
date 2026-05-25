@@ -22,5 +22,5 @@ UNIVERSES = {
 # SUSY parameters
 ENERGY_THRESHOLD = 0.01     # not used in this version, but kept for compatibility
 N_DISCRETIZATION = 200      # grid points for density estimation
-MODE_PROMINENCE = 0.005      # prominence threshold for peak detection
+MODE_PROMINENCE = 0.002      # prominence threshold for peak detection
 TOP_N = 3
