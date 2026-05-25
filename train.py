@@ -25,9 +25,8 @@ def run_for_window(returns, window_days):
             s = susy_qm_score(
                 ret_window[ticker],
                 n_grid=config.N_DISCRETIZATION,
-                threshold=config.ENERGY_THRESHOLD
+                prominence=config.MODE_PROMINENCE
             )
-            # Ensure JSON‑serializable float
             raw_scores[ticker] = float(s)
     except Exception as e:
         print(f"    Error: {e}")
@@ -48,8 +47,8 @@ def main():
     results = {
         "run_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "windows": config.WINDOWS,
-        "energy_threshold": config.ENERGY_THRESHOLD,
         "discretization_points": config.N_DISCRETIZATION,
+        "mode_prominence": config.MODE_PROMINENCE,
         "universes": {}
     }
     for uni_name in config.UNIVERSES.keys():
