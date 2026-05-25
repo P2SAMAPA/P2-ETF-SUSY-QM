@@ -8,29 +8,42 @@ import data_manager as dm
 from susy_qm import susy_qm_score
 
 def normalize_scores(score_dict):
-    """Normalize to [0,1] but fallback to 0 if constant."""
+    """Min‑max normalization to [0,1]."""
     scores = np.array(list(score_dict.values()))
     min_s, max_s = scores.min(), scores.max()
     if max_s - min_s < 1e-12:
-        return {k: 0.5 for k in score_dict}  # fallback to 0.5
+        return {k: 0.0 for k in score_dict}
     norm = (scores - min_s) / (max_s - min_s)
     return {ticker: float(norm[i]) for i, ticker in enumerate(score_dict.keys())}
 
 def run_for_window(returns, window_days):
+    """
+    Process one rolling window: compute SUSY QM score for each ETF.
+    Returns dict with raw and normalised scores, top‑3 list.
+    """
     if len(returns) < window_days:
         return None
     ret_window = returns.iloc[-window_days:]
-    raw_scores = {}
-    for ticker in ret_window.columns:
-        s = susy_qm_score(ret_window[ticker])
-        raw_scores[ticker] = float(s)
-    # Print first few raw scores for debugging
-    if raw_scores:
-        first_ticker = list(raw_scores.keys())[0]
-        print(f"    Sample raw score for {first_ticker}: {raw_scores[first_ticker]}")
+    try:
+        raw_scores = {}
+        for ticker in ret_window.columns:
+            # Call genuine SUSY QM score with epsilon from config
+            s = susy_qm_score(
+                ret_window[ticker],
+                n_grid=config.N_DISCRETIZATION,
+                epsilon=config.EPSILON
+            )
+            raw_scores[ticker] = float(s)   # ensure JSON serializable
+    except Exception as e:
+        print(f"    Error: {e}")
+        return None
+
     norm_scores = normalize_scores(raw_scores)
     sorted_norm = sorted(norm_scores.items(), key=lambda x: x[1], reverse=True)
-    top_etfs = [{"ticker": t, "susy_score_norm": s, "raw_score": raw_scores[t]} for t, s in sorted_norm[:config.TOP_N]]
+    top_etfs = [
+        {"ticker": t, "susy_score_norm": s, "raw_score": raw_scores[t]}
+        for t, s in sorted_norm[:config.TOP_N]
+    ]
     return {
         "window": window_days,
         "top_etfs": top_etfs,
@@ -41,45 +54,56 @@ def run_for_window(returns, window_days):
 def main():
     print("Loading master data...")
     dm.load_master_data()
+
     results = {
         "run_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "windows": config.WINDOWS,
+        "discretization_points": config.N_DISCRETIZATION,
+        "epsilon": config.EPSILON,
         "universes": {}
     }
+
     for uni_name in config.UNIVERSES.keys():
         print(f"Processing {uni_name}...")
         returns = dm.get_universe_returns(uni_name)
         if returns.empty:
             print("  No data -> skipping")
             continue
+
         all_window_results = []
-        best_score = -np.inf
+        best_raw_max = -np.inf
         best_window = None
         best_data = None
+
         for w in config.WINDOWS:
             print(f"  Window {w} days")
             out = run_for_window(returns, w)
             if out:
                 all_window_results.append(out)
-                # best window = largest raw score (highest vol)
-                max_raw = max(out["all_scores_raw"].values())
-                if max_raw > best_score:
-                    best_score = max_raw
+                # Best window = one with largest maximum raw Witten index
+                current_max = max(out["all_scores_raw"].values())
+                if current_max > best_raw_max:
+                    best_raw_max = current_max
                     best_window = w
                     best_data = out
             else:
                 print(f"    Failed for window {w}")
+
         results["universes"][uni_name] = {
             "best_window": best_window,
             "best_window_data": best_data,
             "all_windows": all_window_results
         }
+
+    # Save results locally
     os.makedirs("output", exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_file = f"output/susy_qm_{timestamp}.json"
     with open(out_file, "w") as f:
         json.dump(results, f, indent=2)
     print(f"Saved to {out_file}")
+
+    # Upload to Hugging Face
     api = HfApi(token=config.HF_TOKEN)
     try:
         api.upload_file(
