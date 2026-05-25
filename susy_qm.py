@@ -1,41 +1,49 @@
 import numpy as np
+from scipy.linalg import eigh_tridiagonal
 from sklearn.neighbors import KernelDensity
-from scipy.signal import find_peaks
 
-def count_density_modes(returns, n_grid=200, prominence=0.01):
-    """
-    Estimate number of modes (peaks) in the return density.
-    Uses a more sensitive prominence and adjusts bandwidth.
-    """
+def superpotential_from_returns(returns, n_grid=200):
     returns_clean = returns.dropna().values.reshape(-1, 1)
-    if len(returns_clean) < 10:
-        return 0
-    # Use a smaller bandwidth than 'scott' for more detail
-    # Scott's bandwidth = n^{-1/(d+4)} * std, often too smooth for bimodality detection
-    # Use a fixed bandwidth of 0.01 or adaptive based on IQR
-    iqr = np.percentile(returns_clean, 75) - np.percentile(returns_clean, 25)
-    bw = max(0.005, iqr * 0.5)  # bandwidth as half of IQR, minimum 0.005
-    kde = KernelDensity(kernel='gaussian', bandwidth=bw).fit(returns_clean)
+    if len(returns_clean) < 5:
+        return np.linspace(-0.1, 0.1, n_grid), np.zeros(n_grid)
     grid_min = np.percentile(returns_clean, 1)
     grid_max = np.percentile(returns_clean, 99)
-    margin = max(0.01, (grid_max - grid_min) * 0.1)
+    margin = max(0.01, (grid_max - grid_min) * 0.2)
     grid_min -= margin
     grid_max += margin
     x_grid = np.linspace(grid_min, grid_max, n_grid)
-    log_density = kde.score_samples(x_grid.reshape(-1, 1))
-    density = np.exp(log_density)
-    # Find peaks with low prominence to catch small modes
-    peaks, properties = find_peaks(density, prominence=prominence * np.max(density), width=1)
-    # Also consider peaks that are at least 10% of max height
-    if len(peaks) == 0:
-        # Try lower prominence
-        peaks, _ = find_peaks(density, prominence=0.005 * np.max(density))
-    return len(peaks)
+    kde = KernelDensity(kernel='gaussian', bandwidth=0.01).fit(returns_clean)
+    log_prob = kde.score_samples(x_grid.reshape(-1, 1))
+    W = -log_prob
+    W -= np.min(W)
+    return x_grid, W
 
-def susy_qm_score(returns, n_grid=200, prominence=0.01):
-    """Return number of density modes (metastable regimes)."""
+def discretized_hamiltonian_eigenvalues(x, W, hbar=1.0, m=1.0):
+    dx = x[1] - x[0]
+    Wp = np.gradient(W, dx)
+    Wpp = np.gradient(Wp, dx)
+    V_eff = Wp**2 - Wpp
+    hbar_sq_over_2m = (hbar**2) / (2*m)
+    n = len(x)
+    diag = np.zeros(n)
+    off_diag = np.zeros(n-1)
+    for i in range(n):
+        diag[i] = V_eff[i] + 2 * hbar_sq_over_2m / dx**2
+    for i in range(n-1):
+        off_diag[i] = - hbar_sq_over_2m / dx**2
+    eigvals, _ = eigh_tridiagonal(diag, off_diag, select='a', select_range=None)
+    return eigvals
+
+def witten_index(eigvals, threshold=1e-6):
+    # Count eigenvalues below threshold (near zero)
+    return np.sum(eigvals < threshold)
+
+def susy_qm_score(returns, n_grid=200, threshold=1e-6):
     returns_clean = returns.dropna()
     if len(returns_clean) < 10:
         return 0.0
-    n_modes = count_density_modes(returns_clean, n_grid=n_grid, prominence=prominence)
-    return float(n_modes)
+    x_grid, W = superpotential_from_returns(returns_clean, n_grid=n_grid)
+    eigvals = discretized_hamiltonian_eigenvalues(x_grid, W)
+    idx = witten_index(eigvals, threshold)
+    # convert to Python int
+    return float(idx)
