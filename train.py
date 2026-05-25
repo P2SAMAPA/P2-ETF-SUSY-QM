@@ -27,11 +27,10 @@ def run_for_window(returns, window_days):
     try:
         raw_scores = {}
         for ticker in ret_window.columns:
-            # Call genuine SUSY QM score with epsilon from config
+            # Call genuine SUSY QM score (ground state energy)
             s = susy_qm_score(
                 ret_window[ticker],
-                n_grid=config.N_DISCRETIZATION,
-                epsilon=config.EPSILON
+                n_grid=config.N_DISCRETIZATION
             )
             raw_scores[ticker] = float(s)   # ensure JSON serializable
     except Exception as e:
@@ -59,7 +58,6 @@ def main():
         "run_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "windows": config.WINDOWS,
         "discretization_points": config.N_DISCRETIZATION,
-        "epsilon": config.EPSILON,
         "universes": {}
     }
 
@@ -71,7 +69,7 @@ def main():
             continue
 
         all_window_results = []
-        best_raw_max = -np.inf
+        best_raw_min = np.inf   # we want the smallest ground state energy (most stable)
         best_window = None
         best_data = None
 
@@ -80,10 +78,10 @@ def main():
             out = run_for_window(returns, w)
             if out:
                 all_window_results.append(out)
-                # Best window = one with largest maximum raw Witten index
-                current_max = max(out["all_scores_raw"].values())
-                if current_max > best_raw_max:
-                    best_raw_max = current_max
+                # Best window = one with smallest average raw energy
+                current_avg = np.mean(list(out["all_scores_raw"].values()))
+                if current_avg < best_raw_min:
+                    best_raw_min = current_avg
                     best_window = w
                     best_data = out
             else:
