@@ -3,8 +3,10 @@ from scipy.stats import norm
 
 def susy_qm_score(returns, n_grid=None, prominence=None):
     """
-    Return a proxy for the ground state energy: negative log-likelihood
-    of the returns under a fitted normal distribution (lower = better fit).
+    Compute a proxy for ground state energy: negative log‑likelihood
+    of returns under a fitted normal distribution.
+    Lower values indicate better fit (more Gaussian, less structure).
+    Higher values indicate deviation from normality – more "exotic" regimes.
     """
     returns_clean = returns.dropna()
     if len(returns_clean) < 5:
@@ -13,7 +15,7 @@ def susy_qm_score(returns, n_grid=None, prominence=None):
     sigma = returns_clean.std()
     if sigma < 1e-12:
         return 1.0
-    # Negative log-likelihood (higher = worse fit)
+    # Negative log-likelihood (higher = less likely = more "energy")
     nll = -norm.logpdf(returns_clean.values, mu, sigma).sum()
-    # Normalize by number of points to get per-observation negative log-likelihood
+    # Return per-observation average
     return nll / len(returns_clean)
